@@ -332,12 +332,15 @@ class IncludeExtendedNode(Node):
     must_be_first = False
     context_key = '__include_context'
 
-    def __init__(self, nodelist, parent_name, template_dirs=None):
+    def __init__(self, nodelist, parent_name, *args, template_dirs=None,extra_context=None, isolated_context=False, **kwargs):
         self.nodelist = nodelist
         self.parent_name = parent_name
         self.template_dirs = template_dirs
         self.blocks = {n.name: n for n in nodelist.get_nodes_by_type(BlockNode)}
         self.overload_blocks = {n.name: n for n in nodelist.get_nodes_by_type(OverloadBlockNode)}
+        self.extra_context = extra_context or {}
+        self.isolated_context = isolated_context
+        super().__init__(*args, **kwargs)
 
     def __repr__(self):
         return '<%s: include_extends %s>' % (self.__class__.__name__, self.parent_name.token)
@@ -352,13 +355,8 @@ class IncludeExtendedNode(Node):
         history = context.render_context.setdefault(
             self.context_key, [self.origin],
         )
-        print("WE ARE HERE")
-        print("WE ARE HERE")
-        print("WE ARE HERE")
-        print("WE ARE HERE")
         for h in history:
             print(h)
-        print("____DONE__")
         template, origin = context.template.engine.find_template(
             template_name, skip=history,
         )
@@ -419,7 +417,17 @@ class IncludeExtendedNode(Node):
         # Call Template._render explicitly so the parser context stays
         # the same.
         with context.render_context.push_state(compiled_parent, isolated_context=False):
-            res = compiled_parent._render(context)
+            values = {
+                name: var.resolve(context)
+                for name, var in self.extra_context.items()
+            }
+            res=None
+            if self.isolated_context:
+                ncontext=context.new(values)
+                res=compiled_parent._render(ncontext)
+            else:
+                with context.push(**values):
+                    res=compiled_parent._render(context)
             for name, block in self.overload_blocks.items():
                 block_context.blocks[name].pop()
             return res
@@ -603,24 +611,50 @@ def do_include_extended(parser, token):
     the parent template itself (if it evaluates to a Template object).
     """
     bits = token.split_contents()
-    if len(bits) != 2:
-        raise TemplateSyntaxError("'%s' takes one argument" % bits[0])
+    if len(bits) < 2:
+        raise TemplateSyntaxError(
+            "%r tag takes at least one argument: the name of the template to "
+            "be included." % bits[0]
+        )
     block_name = bits[1]
-    bits[1] = construct_relative_path(parser.origin.template_name, bits[1])
-    parent_name = parser.compile_filter(bits[1])
-    nodelist = parser.parse(('endextends_included',))
     
     #if nodelist.get_nodes_by_type(ExtendsNode):
     #    raise TemplateSyntaxError("'%s' cannot appear more than once in the same template" % bits[0])
     #return ExtendsNode(nodelist, parent_name)
     
     # This check is kept for backwards-compatibility. See #3100.
+    #return BlockNode(block_name, nodelist)
+    options = {}
+    remaining_bits = bits[2:]
+    while remaining_bits:
+        option = remaining_bits.pop(0)
+        if option in options:
+            raise TemplateSyntaxError('The %r option was specified more '
+                                      'than once.' % option)
+        if option == 'with':
+            value = token_kwargs(remaining_bits, parser, support_legacy=False)
+            if not value:
+                raise TemplateSyntaxError('"with" in %r tag needs at least '
+                                          'one keyword argument.' % bits[0])
+        elif option == 'only':
+            value = True
+        else:
+            raise TemplateSyntaxError('Unknown argument for %r tag: %r.' %
+                                      (bits[0], option))
+        options[option] = value
+    isolated_context = options.get('only', False)
+    namemap = options.get('with', {})
+    bits[1] = construct_relative_path(parser.origin.template_name, bits[1])
+    parent_name = parser.compile_filter(bits[1])
+    nodelist = parser.parse(('endextends_included',))
+    
     endblock = parser.next_token()
     acceptable_endblocks = ('endextends_included', 'endextends_included %s' % block_name)
-    if endblock.contents not in acceptable_endblocks:
+    if endblock.contents not in acceptable_endblocks and not endblock.contents.startswith('end%s' % bits[0]):
         parser.invalid_block_tag(endblock, 'endextends_included', acceptable_endblocks)
-    #return BlockNode(block_name, nodelist)
-    return IncludeExtendedNode(nodelist, parent_name)
+    
+    return IncludeExtendedNode(nodelist, parent_name, extra_context=namemap,
+                       isolated_context=isolated_context)
 
 
 

@@ -75,8 +75,8 @@ generic template base_ui/carousel.htm
             </ol>
             {% endblock carousel-indicators %}
             {% for item in item-list %}
-            {% block carousel-item %}
             <div class="carousel-item {% if forloop.first %} active {% endif %}">
+                {% block carousel-item %}
                 <!-- should content not overlap the controls? div id="{{item.htmlid}}" class="container"-->
                     <img src="{{item.image_url}}">
                     <div class="carousel-caption d-none d-md-block">
@@ -88,8 +88,8 @@ generic template base_ui/carousel.htm
                         {% endif %}
                     </div>
                 <!--/div-->
+                {% endblock carousel-item %}
             </div>
-            {% endblock carousel-item %}
             {% endfor %}
             {% block carousel-controls %}
             <a class="carousel-control-prev" href="#{{carousel_id}}" role="button" data-slide="prev">
@@ -121,8 +121,18 @@ calling template extensive_use.html
     {% endextend_included base_ui/carousel.htm %}
     
     {% extend_included base_ui/carousel.htm with item-list=people_list %}
+        {% block_overload carousel-indicators %}
+            <ol class="carousel-indicators">
+                {% for item in item-list %}
+                <li data-target="#{{carousel_id}}" data-slide-to="{{forloop.counter0}}" class="{% if forloop.first %} btn btn-lg active {% endif %}"></li>
+                {% endfor item in item-list %}
+            </ol>
+        {% endblock_overload carousel-indicators %}
         {% block_overload carousel-item %}
             <img src="{{item.url}}" title="{{item.title}}"/>
         {% endblock_overload carousel-item %}
+    {% endextend_included base_ui/carousel.htm %}
+    {% extend_included base_ui/carousel.htm with item-list=project_list %}
+	   {# Will use all blocks as defined in base_ui/carousel.htm #}
     {% endextend_included base_ui/carousel.htm %}
 
